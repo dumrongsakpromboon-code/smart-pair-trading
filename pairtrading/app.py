@@ -17,7 +17,41 @@ SHEET_NAME = "Smart_Portfolio_ZScore_Edition"
 CREDENTIALS_FILE = 'client_secret.json'
 
 # ฟังก์ชันเชื่อมต่อ Database (Google Sheet)
-@st.cache_resourcedef init_connection():    try:        # 1. ลองเชื่อมต่อผ่าน Streamlit Secrets (สำหรับ Cloud)        if "gcp_service_account" in st.secrets:            # แปลง Secrets object เป็น Dict เพื่อแก้ไขค่าได้            creds = dict(st.secrets["gcp_service_account"])                        # ⚠️ แก้ไข Bug Private Key: เปลี่ยน \n เป็นการขึ้นบรรทัดใหม่จริง            if "private_key" in creds:                creds["private_key"] = creds["private_key"].replace("\\n", "\n")                        client = gspread.service_account_from_dict(creds)            sh = client.open(SHEET_NAME)            return sh        # 2. ถ้าไม่มี Secrets ให้ลองหาไฟล์ Local (สำหรับเครื่องตัวเอง)        else:            client = gspread.oauth(                credentials_filename=CREDENTIALS_FILE,                authorized_user_filename='token.json'            )            sh = client.open(SHEET_NAME)            return sh    except Exception as e:        st.error(f"💥 **Connection Failed**")        st.error(f"Error Details: {e}") # แสดง Error จริงออกมาดูเลย        return None
+@st.cache_resource
+def init_connection():
+    # Returns a tuple: (connection_object, status_message, error_message, warning_message)
+    warning_message = None
+    try:
+        # 1. ลองเชื่อมต่อผ่าน Streamlit Secrets (สำหรับ Cloud)
+        if "gcp_service_account" in st.secrets:
+            creds = dict(st.secrets["gcp_service_account"])
+            if "private_key" in creds:
+                creds["private_key"] = creds["private_key"].replace("\\n", "\n")
+            client = gspread.service_account_from_dict(creds)
+            sh = client.open(SHEET_NAME)
+            return sh, "☁️ Connected via Streamlit Secrets!", None, None
+    except Exception as e:
+        warning_message = f"🤫 Secrets connection failed. Will try local file next."
+        # Don't return here, let it fall through to the next method
+
+    # 2. ถ้าไม่มี Secrets ให้ลองหาไฟล์ Local (สำหรับเครื่องตัวเอง)
+    try:
+        client = gspread.oauth(
+            credentials_filename=CREDENTIALS_FILE,
+            authorized_user_filename='token.json'
+        )
+        sh = client.open(SHEET_NAME)
+        return sh, "📄 Connected via local file!", None, warning_message
+    except Exception as e:
+        error_message = (
+            "💥 **Connection Failed**\n"
+            f"Could not connect to Google Sheets using any method.\n"
+            f"**Details:** {e}\n"
+            "Please ensure you have a valid `client_secret.json` for local use, "
+            "or have configured `gcp_service_account` secrets for cloud deployment."
+        )
+        return None, None, error_message, warning_message
+
 # ฟังก์ชันคำนวณยอดสินทรัพย์คงเหลือจากประวัติ
 def calculate_current_holdings(trade_history_df):
     asset1_holdings = 0.0
@@ -98,7 +132,17 @@ def save_transaction(sh, date, action_type, z_score, asset1_act, asset2_act, not
         st.error(f"บันทึกไม่สำเร็จ: {e}")
 
 # เชื่อมต่อ Database
-sh = init_connection()
+sh, toast_msg, error_msg, warning_msg = init_connection()
+
+# Display connection status messages
+if warning_msg:
+    st.warning(warning_msg)
+if error_msg:
+    st.error(error_msg)
+    st.stop() # Stop execution if connection fails
+if toast_msg:
+    st.toast(toast_msg)
+
 
 # Load trade history and calculate current holdings
 trade_history = load_trade_history(sh)
