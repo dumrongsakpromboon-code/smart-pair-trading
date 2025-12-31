@@ -17,28 +17,7 @@ SHEET_NAME = "Smart_Portfolio_ZScore_Edition"
 CREDENTIALS_FILE = 'client_secret.json'
 
 # ฟังก์ชันเชื่อมต่อ Database (Google Sheet)
-@st.cache_resource
-def init_connection():
-    try:
-        # First, try to connect using Streamlit's secrets management (for deployed app)
-        creds = st.secrets["gcp_service_account"]
-        client = gspread.service_account_from_dict(creds)
-        sh = client.open(SHEET_NAME)
-        return sh
-    except (KeyError, Exception):
-        # If secrets fail, fall back to local files for local development
-        try:
-            client = gspread.oauth(
-                credentials_filename=CREDENTIALS_FILE,
-                authorized_user_filename='token.json'
-            )
-            sh = client.open(SHEET_NAME)
-            return sh
-        except Exception as local_e:
-            st.error("💥 **Connection Failed**")
-            st.info("Could not connect to Google Sheets. Please check your credentials and setup.")
-            st.warning("For local use, ensure 'client_secret.json' and 'token.json' are present. For deployment, ensure Streamlit Secrets are configured correctly.")
-            return None
+@st.cache_resourcedef init_connection():    try:        # 1. ลองเชื่อมต่อผ่าน Streamlit Secrets (สำหรับ Cloud)        if "gcp_service_account" in st.secrets:            # แปลง Secrets object เป็น Dict เพื่อแก้ไขค่าได้            creds = dict(st.secrets["gcp_service_account"])                        # ⚠️ แก้ไข Bug Private Key: เปลี่ยน \n เป็นการขึ้นบรรทัดใหม่จริง            if "private_key" in creds:                creds["private_key"] = creds["private_key"].replace("\\n", "\n")                        client = gspread.service_account_from_dict(creds)            sh = client.open(SHEET_NAME)            return sh        # 2. ถ้าไม่มี Secrets ให้ลองหาไฟล์ Local (สำหรับเครื่องตัวเอง)        else:            client = gspread.oauth(                credentials_filename=CREDENTIALS_FILE,                authorized_user_filename='token.json'            )            sh = client.open(SHEET_NAME)            return sh    except Exception as e:        st.error(f"💥 **Connection Failed**")        st.error(f"Error Details: {e}") # แสดง Error จริงออกมาดูเลย        return None
 # ฟังก์ชันคำนวณยอดสินทรัพย์คงเหลือจากประวัติ
 def calculate_current_holdings(trade_history_df):
     asset1_holdings = 0.0
