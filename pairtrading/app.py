@@ -14,43 +14,48 @@ st.set_page_config(page_title="Smart Pair Trading AI", layout="wide", page_icon=
 
 # ตั้งชื่อไฟล์ Sheet ที่จะใช้เก็บข้อมูล (ต้องตรงกับที่คุณสร้างไว้)
 SHEET_NAME = "Smart_Portfolio_ZScore_Edition"
-CREDENTIALS_FILE = 'client_secret.json'
 
 # ฟังก์ชันเชื่อมต่อ Database (Google Sheet)
 @st.cache_resource
 def init_connection():
     # Returns a tuple: (connection_object, status_message, error_message, warning_message)
-    warning_message = None
     try:
-        # 1. ลองเชื่อมต่อผ่าน Streamlit Secrets (สำหรับ Cloud)
-        if "gcp_service_account" in st.secrets:
-            creds = dict(st.secrets["gcp_service_account"])
-            if "private_key" in creds:
-                creds["private_key"] = creds["private_key"].replace("\\n", "\n")
-            client = gspread.service_account_from_dict(creds)
-            sh = client.open(SHEET_NAME)
-            return sh, "☁️ Connected via Streamlit Secrets!", None, None
-    except Exception as e:
-        warning_message = f"🤫 Secrets connection failed. Will try local file next."
-        # Don't return here, let it fall through to the next method
+        if "gcp_service_account" not in st.secrets:
+            error_message = (
+                "**Connection Failed: Missing Secrets**\n\n"
+                "The `[gcp_service_account]` section is missing from your secrets file.\n\n"
+                "Please create a `.streamlit/secrets.toml` file and add the credentials "
+                "from your Google Cloud Service Account JSON key file."
+            )
+            return None, None, error_message, None
 
-    # 2. ถ้าไม่มี Secrets ให้ลองหาไฟล์ Local (สำหรับเครื่องตัวเอง)
-    try:
-        client = gspread.oauth(
-            credentials_filename=CREDENTIALS_FILE,
-            authorized_user_filename='token.json'
-        )
+        creds = dict(st.secrets["gcp_service_account"])
+        # Ensure private_key format is correct
+        if "private_key" in creds:
+            creds["private_key"] = creds["private_key"].replace("\\n", "\n")
+        
+        client = gspread.service_account_from_dict(creds)
         sh = client.open(SHEET_NAME)
-        return sh, "📄 Connected via local file!", None, warning_message
+        return sh, "☁️ Connected to Google Sheets via Streamlit Secrets!", None, None
+    except gspread.exceptions.SpreadsheetNotFound:
+        error_message = (
+            f"**Connection Failed: Spreadsheet Not Found**\n\n"
+            f"The service account was authorized, but it could not find the spreadsheet named **'{SHEET_NAME}'**.\n\n"
+            "**Action required:** Please make sure you have **shared your Google Sheet** with the service account's client email:\n"
+            f"`{st.secrets.gcp_service_account.client_email}`"
+        )
+        return None, None, error_message, None
     except Exception as e:
         error_message = (
-            "💥 **Connection Failed**\n"
-            f"Could not connect to Google Sheets using any method.\n"
-            f"**Details:** {e}\n"
-            "Please ensure you have a valid `client_secret.json` for local use, "
-            "or have configured `gcp_service_account` secrets for cloud deployment."
+            "💥 **Connection Failed**\n\n"
+            "An error occurred while trying to connect to Google Sheets using the provided secrets.\n\n"
+            f"**Details:** {e}\n\n"
+            "**Troubleshooting:**\n"
+            "1.  Verify that your `.streamlit/secrets.toml` file is correctly formatted.\n"
+            "2.  Ensure the Service Account has the 'Editor' role in your Google Cloud project.\n"
+            "3.  Check that both 'Google Drive API' and 'Google Sheets API' are enabled."
         )
-        return None, None, error_message, warning_message
+        return None, None, error_message, None
 
 # ฟังก์ชันคำนวณยอดสินทรัพย์คงเหลือจากประวัติ
 def calculate_current_holdings(trade_history_df):
